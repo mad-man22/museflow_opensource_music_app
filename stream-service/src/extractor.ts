@@ -1,4 +1,4 @@
-import { Innertube, Format, Platform } from 'youtubei.js';
+import { Innertube, Platform } from 'youtubei.js';
 
 // Provide standard JavaScript interpreter for deciphering signatures if needed
 Platform.shim.eval = async (data: any) => {
@@ -40,7 +40,7 @@ export class StreamExtractor {
       }
 
       // Choose the best audio format
-      let format: Format | undefined;
+      let format: any | undefined;
       try {
         format = info.chooseFormat({
           type: 'audio',
@@ -62,7 +62,7 @@ export class StreamExtractor {
 
         // Sort by bitrate descending to get best quality
         audioFormats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-        format = audioFormats[0] as unknown as Format;
+        format = audioFormats[0];
       }
 
       // Generate the deciphered stream URL
