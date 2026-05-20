@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: museflow-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: museflow
+      POSTGRES_PASSWORD: museflow_password
+      POSTGRES_DB: museflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - museflow-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: museflow-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - museflow-network
+
+  stream-service:
+    build:
+      context: ./stream-service
+      dockerfile: Dockerfile
+    container_name: museflow-stream-service
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+    depends_on:
+      - redis
+    networks:
+      - museflow-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: museflow-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://museflow:museflow_password@postgres:5432/museflow
+      - REDIS_URL=redis://redis:6379/0
+      - STREAM_SERVICE_URL=http://stream-service:3001
+      - JWT_SECRET=super_secret_jwt_key_change_me_in_production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+      - stream-service
+    networks:
+      - museflow-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: museflow-frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - museflow-network
+
+networks:
+  museflow-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
