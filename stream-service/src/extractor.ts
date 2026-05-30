@@ -33,7 +33,7 @@ export class StreamExtractor {
     try {
       const yt = await this.getInnertube();
       console.log(`[Extractor] Fetching info for video: ${videoId}`);
-      const info = await yt.getInfo(videoId);
+      const info = await yt.getBasicInfo(videoId);
 
       if (!info.streaming_data) {
         throw new Error('Streaming data not found in YouTube response');
