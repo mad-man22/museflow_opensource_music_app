@@ -79,7 +79,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
         setTimeout(() => { onSuccess?.(); onClose(); window.location.reload(); }, 1400);
       }
     } catch (err: any) {
-      setErrorText(err.message || "An authentication error occurred.");
+      if (err.message === "Failed to fetch" || (err.message && err.message.includes("Failed to fetch"))) {
+        setErrorText("Could not connect to Supabase Auth. Please ensure that NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY are correctly configured in your Vercel or environment variables.");
+      } else {
+        setErrorText(err.message || "An authentication error occurred.");
+      }
     } finally {
       setIsLoading(false);
     }

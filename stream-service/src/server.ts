@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import https from 'https';
-import { StreamExtractor } from './extractor';
+import { StreamExtractor } from './extractor.js';
 
 dotenv.config();
 

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Stream Extraction Microservice for MuseFlow using youtubei.js",
   "main": "dist/server.js",
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
