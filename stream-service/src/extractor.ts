@@ -22,13 +22,25 @@ export class StreamExtractor {
       };
 
       // Support PO Token and Visitor Data from environment variables to bypass bot blocks
-      const poToken = process.env.PO_TOKEN;
-      const visitorData = process.env.VISITOR_DATA;
+      let poToken = process.env.PO_TOKEN;
+      let visitorData = process.env.VISITOR_DATA;
+      
       if (poToken) {
+        // Automatically URL-decode just in case it was copied URL-encoded (e.g. %3D%3D -> ==)
+        try {
+          poToken = decodeURIComponent(poToken);
+        } catch (e) {
+          console.warn('[Extractor] Failed to decodeURIComponent PO_TOKEN, using as-is.');
+        }
         console.log(`[Extractor] Applying PO_TOKEN configuration for ${clientType}...`);
         config.po_token = poToken;
       }
       if (visitorData) {
+        try {
+          visitorData = decodeURIComponent(visitorData);
+        } catch (e) {
+          console.warn('[Extractor] Failed to decodeURIComponent VISITOR_DATA, using as-is.');
+        }
         console.log(`[Extractor] Applying VISITOR_DATA configuration for ${clientType}...`);
         config.visitor_data = visitorData;
       }
