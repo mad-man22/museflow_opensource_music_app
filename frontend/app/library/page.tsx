@@ -61,9 +61,19 @@ export default function LibraryPage() {
     return album?.name || "";
   };
 
-  // Load from local storage and backend on mount
+  // Load from local storage and backend on mount, and listen for updates
   useEffect(() => {
     loadLibraryData();
+
+    const handleLibraryUpdate = () => {
+      console.log("[Library] Reactive update triggered via event");
+      loadLibraryData();
+    };
+
+    window.addEventListener("library-updated", handleLibraryUpdate);
+    return () => {
+      window.removeEventListener("library-updated", handleLibraryUpdate);
+    };
   }, []);
 
   const loadLibraryData = async () => {

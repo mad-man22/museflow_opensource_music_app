@@ -53,6 +53,8 @@ interface PlaybackState {
   setVolume: (value: number) => void;
   toggleMute: () => void;
   addToQueue: (track: Track) => void;
+  removeFromQueue: (trackId: string) => void;
+  clearQueue: () => void;
   setQueue: (tracks: Track[], startIndex?: number) => void;
   reorderQueue: (startIndex: number, endIndex: number) => void;
   toggleRepeat: () => void;
@@ -142,8 +144,8 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     }
   },
 
-  nextTrack: () => {
-    const { queue, currentIndex, isRepeat, isShuffle, audioRef } = get();
+  nextTrack: async () => {
+    const { queue, currentIndex, isRepeat, isShuffle, audioRef, currentTrack } = get();
     if (queue.length === 0) return;
 
     let nextIndex: number;
@@ -154,7 +156,66 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       if (nextIndex >= queue.length) {
         if (isRepeat === 'all') {
           nextIndex = 0;
+        } else if (isRepeat === 'one' && currentTrack) {
+          nextIndex = currentIndex;
         } else {
+          // Queue ran dry! Fetch related recommendations for endless autoplay
+          if (currentTrack) {
+            try {
+              console.log("[Endless Autoplay] Queue ended, loading recommended vibe for song:", currentTrack.title);
+              const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+              const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${currentTrack.track_id}`);
+              
+              if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data) && data.length > 0) {
+                  // Find recommendations
+                  const recommendations = data.map((track: any) => ({
+                    track_id: track.videoId || track.track_id,
+                    title: track.title,
+                    artists: track.artists 
+                      ? (Array.isArray(track.artists) ? track.artists.map((a: any) => a.name).join(", ") : track.artists) 
+                      : track.author || "Unknown Artist",
+                    thumbnail: track.thumbnails 
+                      ? (track.thumbnails[0]?.url || track.thumbnails[0]) 
+                      : track.thumbnail || "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300"
+                  }));
+                  
+                  // Find the first recommendation that is NOT already in the queue to break infinite 2-song loops
+                  let nextTrackObj = recommendations.find(
+                    (rec: any) => !queue.some((qTrack) => qTrack.track_id === rec.track_id)
+                  );
+                  
+                  // Fallback to the top recommendation if all candidates have already been played in this session
+                  if (!nextTrackObj) {
+                    nextTrackObj = recommendations[0];
+                  }
+                  
+                  const newQueue = [...queue, nextTrackObj];
+                  
+                  set({
+                    queue: newQueue,
+                    currentIndex: queue.length,
+                    currentTrack: nextTrackObj,
+                    currentTime: 0,
+                    isPlaying: true,
+                  });
+                  
+                  if (audioRef) {
+                    audioRef.src = getAudioSrc(nextTrackObj);
+                    audioRef.load();
+                    audioRef.play().catch(e => {
+                      if (e.name !== 'AbortError') console.warn("nextTrack autoplay play() error:", e);
+                    });
+                  }
+                  return;
+                }
+              }
+            } catch (err) {
+              console.warn("[Endless Autoplay] Recommendation fetch failed:", err);
+            }
+          }
+
           set({ isPlaying: false });
           if (audioRef) audioRef.pause();
           return;
@@ -254,6 +315,47 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     const { queue } = get();
     if (queue.some((t) => t.track_id === track.track_id)) return;
     set({ queue: [...queue, track] });
+  },
+
+  removeFromQueue: (trackId) => {
+    const { queue, currentIndex, currentTrack, audioRef } = get();
+    const targetIdx = queue.findIndex(t => t.track_id === trackId);
+    if (targetIdx === -1) return;
+    
+    const newQueue = queue.filter(t => t.track_id !== trackId);
+    let newIndex = currentIndex;
+    
+    if (targetIdx === currentIndex) {
+      if (newQueue.length > 0) {
+        if (newIndex >= newQueue.length) {
+          newIndex = 0;
+        }
+        const next = newQueue[newIndex];
+        set({ queue: newQueue, currentIndex: newIndex, currentTrack: next, currentTime: 0 });
+        if (audioRef && next) {
+          audioRef.src = getAudioSrc(next);
+          audioRef.load();
+          audioRef.play().catch(() => {});
+        }
+      } else {
+        set({ queue: [], currentIndex: -1, currentTrack: null, currentTime: 0, isPlaying: false });
+        if (audioRef) audioRef.pause();
+      }
+    } else {
+      if (targetIdx < currentIndex) {
+        newIndex -= 1;
+      }
+      set({ queue: newQueue, currentIndex: newIndex });
+    }
+  },
+
+  clearQueue: () => {
+    const { audioRef } = get();
+    set({ queue: [], currentIndex: -1, currentTrack: null, currentTime: 0, isPlaying: false });
+    if (audioRef) {
+      audioRef.src = "";
+      audioRef.pause();
+    }
   },
 
   setQueue: (tracks, startIndex = 0) => {

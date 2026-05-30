@@ -88,28 +88,42 @@ def plain_lyrics_to_lrc(raw_lyrics: str, duration_seconds: int) -> str:
         
     num_lines = len(lines)
     
-    # Start lyrics after short intro (e.g. 5-15s based on duration)
-    intro_delay = min(15.0, max(3.0, duration_seconds * 0.08))
+    # Start lyrics after short intro (e.g. 8% of duration)
+    intro_delay = min(15.0, max(4.0, duration_seconds * 0.08))
     # Finish lyrics slightly before the end
-    outro_delay = min(10.0, max(2.0, duration_seconds * 0.05))
+    outro_delay = min(10.0, max(3.0, duration_seconds * 0.05))
     
     usable_duration = duration_seconds - intro_delay - outro_delay
     if usable_duration <= 0:
         usable_duration = duration_seconds
         intro_delay = 0.0
         
-    time_per_line = usable_duration / max(1, num_lines)
-    
-    lrc_lines = []
-    for idx, line in enumerate(lines):
-        current_time_seconds = intro_delay + idx * time_per_line
+    # Character-weighted pacing to match singing speed to word length
+    # Strip spaces to count clean character lengths
+    char_counts = [len(line.replace(" ", "")) for line in lines]
+    total_chars = sum(char_counts)
+    if total_chars == 0:
+        total_chars = 1
+        char_counts = [1] * num_lines
         
+    lrc_lines = []
+    current_time_seconds = intro_delay
+    
+    for idx, line in enumerate(lines):
         minutes = int(current_time_seconds // 60)
         seconds = int(current_time_seconds % 60)
         hundredths = int((current_time_seconds % 1) * 100)
         
         timestamp = f"[{minutes:02d}:{seconds:02d}.{hundredths:02d}]"
         lrc_lines.append(f"{timestamp} {line}")
+        
+        # Calculate proportionate duration based on text density
+        line_proportion = char_counts[idx] / total_chars
+        line_duration = line_proportion * usable_duration
+        
+        # Ensure a sensible minimum line display duration (e.g. 1.6s) to ensure readability
+        line_duration = max(1.6, line_duration)
+        current_time_seconds += line_duration
         
     return "\n".join(lrc_lines)
 
@@ -128,8 +142,16 @@ def clean_name(name: str) -> str:
     name = name.strip(" - \t\n\r")
     return name
 
+_LYRICS_CACHE = {}
+
 @router.get("/lyrics/{track_id}")
-async def get_lyrics(track_id: str):
+async def get_lyrics(
+    track_id: str,
+    title: Optional[str] = None,
+    artist: Optional[str] = None,
+    duration: Optional[str] = None,
+    redis_client = Depends(get_redis)
+):
     """
     Retrieves synced scrolling lyrics (.lrc format).
     Priority:
@@ -139,46 +161,95 @@ async def get_lyrics(track_id: str):
       4. YouTube Music plain lyrics — mathematically time-distributed
       5. Ambient placeholder
     """
-    print(f"[Lyrics] Fetching lyrics for track: {track_id}")
+    import json
+    
+    # 1. Check local memory cache
+    if track_id in _LYRICS_CACHE:
+        print(f"[Lyrics] Local memory cache hit for track: {track_id}")
+        return _LYRICS_CACHE[track_id]
 
-    title = "Unknown Track"
-    artist = "Unknown Artist"
+    # 2. Check Redis cache
+    redis_key = f"lyrics:{track_id}"
+    try:
+        cached_val = redis_client.get(redis_key)
+        if cached_val:
+            parsed = json.loads(cached_val)
+            _LYRICS_CACHE[track_id] = parsed
+            print(f"[Lyrics] Redis cache hit for track: {track_id}")
+            return parsed
+    except Exception as e:
+        print(f"[Lyrics] Redis lookup failed for track {track_id}: {e}")
+
+    print(f"[Lyrics] Cache miss. Fetching lyrics for track: {track_id}")
+
+    resolved_title = "Unknown Track"
+    resolved_artist = "Unknown Artist"
     duration_seconds = 180
 
-    # 1. Fetch track metadata (title, artist, duration)
-    try:
-        details = YTMusicClient.get_track_details(track_id)
-        title = details.get("title", "Unknown Track")
+    # Try resolving from query parameters first
+    has_params = False
+    if title and artist:
+        resolved_title = title
+        resolved_artist = artist
+        has_params = True
+        if duration:
+            try:
+                if ":" in str(duration):
+                    parts = str(duration).split(":")
+                    if len(parts) == 2:
+                        duration_seconds = int(parts[0]) * 60 + int(parts[1])
+                    elif len(parts) == 3:
+                        duration_seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                else:
+                    duration_seconds = int(float(duration))
+            except Exception:
+                pass
+        print(f"[Lyrics] Dynamic query params resolved -> Title: '{resolved_title}', Artist: '{resolved_artist}', Duration: {duration_seconds}s")
 
-        artists_data = details.get("artists", details.get("author"))
-        if isinstance(artists_data, list):
-            # Safe parsing for mixed lists/dicts
-            artist_names = []
-            for a in artists_data:
-                if isinstance(a, dict):
-                    artist_names.append(a.get("name", ""))
-                elif isinstance(a, str):
-                    artist_names.append(a)
-            artist = ", ".join([a for a in artist_names if a])
-        elif isinstance(artists_data, str):
-            artist = artists_data
+    if not has_params:
+        # Fetch track metadata from YTMusic
+        try:
+            details = YTMusicClient.get_track_details(track_id)
+            resolved_title = details.get("title", "Unknown Track")
 
-        if "duration_seconds" in details:
-            duration_seconds = details["duration_seconds"]
-        else:
-            length_str = details.get("length", "")
-            if length_str:
-                parts = length_str.split(":")
-                if len(parts) == 2:
-                    duration_seconds = int(parts[0]) * 60 + int(parts[1])
-                elif len(parts) == 3:
-                    duration_seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-    except Exception as e:
-        print(f"[Lyrics] Failed to fetch track metadata for {track_id}: {e}")
+            artists_data = details.get("artists", details.get("author"))
+            if isinstance(artists_data, list):
+                # Safe parsing for mixed lists/dicts
+                artist_names = []
+                for a in artists_data:
+                    if isinstance(a, dict):
+                        artist_names.append(a.get("name", ""))
+                    elif isinstance(a, str):
+                        artist_names.append(a)
+                resolved_artist = ", ".join([a for a in artist_names if a])
+            elif isinstance(artists_data, str):
+                resolved_artist = artists_data
 
-    cleaned_title = clean_name(title)
-    cleaned_artist = clean_name(artist)
+            if "duration_seconds" in details:
+                duration_seconds = details["duration_seconds"]
+            else:
+                length_str = details.get("length", "")
+                if length_str:
+                    parts = length_str.split(":")
+                    if len(parts) == 2:
+                        duration_seconds = int(parts[0]) * 60 + int(parts[1])
+                    elif len(parts) == 3:
+                        duration_seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        except Exception as e:
+            print(f"[Lyrics] Failed to fetch track metadata for {track_id}: {e}")
+
+    cleaned_title = clean_name(resolved_title)
+    cleaned_artist = clean_name(resolved_artist)
     print(f"[Lyrics] Cleaned query details -> Title: '{cleaned_title}', Artist: '{cleaned_artist}', Duration: {duration_seconds}s")
+
+    # Helper to cache and return the result
+    def cache_and_return(res_dict):
+        _LYRICS_CACHE[track_id] = res_dict
+        try:
+            redis_client.setex(redis_key, 86400 * 7, json.dumps(res_dict)) # Cache for 7 days
+        except Exception as e:
+            print(f"[Lyrics] Failed to save in Redis for {track_id}: {e}")
+        return res_dict
 
     # 2. Try LRCLIB Search with fuzzy matching
     try:
@@ -215,12 +286,12 @@ async def get_lyrics(track_id: str):
                     # Accept match if duration is within 25 seconds
                     if best_diff <= 25:
                         print(f"[Lyrics] Found best synced lyrics match: '{best_match.get('trackName')}' by '{best_match.get('artistName')}' (Duration: {best_match.get('duration')}s, Diff: {best_diff:.1f}s) [Match]")
-                        return {
+                        return cache_and_return({
                             "track_id": track_id,
                             "synced": True,
                             "source": "LRCLIB Search (Timestamped)",
                             "lyrics": best_match.get("syncedLyrics")
-                        }
+                        })
                     else:
                         print(f"[Lyrics] Closest synced match duration delta too large ({best_diff:.1f}s > 25s), skipping search result")
             else:
@@ -235,8 +306,8 @@ async def get_lyrics(track_id: str):
             resp = await client.get(
                 "https://lrclib.net/api/get",
                 params={
-                    "artist_name": artist,
-                    "track_name": title,
+                    "artist_name": resolved_artist,
+                    "track_name": resolved_title,
                     "duration": duration_seconds
                 },
                 headers={"User-Agent": "MuseFlow/1.0 (https://github.com/museflow)"}
@@ -247,22 +318,22 @@ async def get_lyrics(track_id: str):
             synced = data.get("syncedLyrics", "")
             if synced and "[" in synced:
                 print(f"[Lyrics] Strict LRCLIB Get returned real synced lyrics [Match]")
-                return {
+                return cache_and_return({
                     "track_id": track_id,
                     "synced": True,
                     "source": "LRCLIB Get (Timestamped)",
                     "lyrics": synced
-                }
+                })
             
             plain = data.get("plainLyrics", "")
             if plain:
-                print(f"[Lyrics] Strict LRCLIB Get returned plain lyrics, distributing mathematically...")
-                return {
+                print(f"[Lyrics] Strict LRCLIB Get returned plain lyrics, pacing dynamically...")
+                return cache_and_return({
                     "track_id": track_id,
                     "synced": True,
-                    "source": "LRCLIB Get (Synced by MuseFlow)",
+                    "source": "LRCLIB Get (Weighted Synced)",
                     "lyrics": plain_lyrics_to_lrc(plain, duration_seconds)
-                }
+                })
     except Exception as e:
         print(f"[Lyrics] Strict LRCLIB Get failed: {e}")
 
@@ -275,34 +346,34 @@ async def get_lyrics(track_id: str):
             lyrics_data = yt_client.get_lyrics(lyrics_browse_id)
             yt_plain = lyrics_data.get("lyrics", "")
             if yt_plain:
-                print(f"[Lyrics] Using YouTube Music plain lyrics fallback for '{title}'")
-                return {
+                print(f"[Lyrics] Using YouTube Music plain lyrics fallback, pacing dynamically...")
+                return cache_and_return({
                     "track_id": track_id,
                     "synced": True,
-                    "source": "YouTube Music (Synced by MuseFlow)",
+                    "source": "YouTube Music (Weighted Synced)",
                     "lyrics": plain_lyrics_to_lrc(yt_plain, duration_seconds)
-                }
+                })
     except Exception as e:
         print(f"[Lyrics] YouTube Music lyrics fallback failed: {e}")
 
     # 5. Ambient placeholder — no lyrics found anywhere
-    print(f"[Lyrics] No lyrics found for '{title}', using ambient placeholder")
+    print(f"[Lyrics] No lyrics found for '{resolved_title}', using ambient placeholder")
     lrc_fallback = [
         "[00:00.00] ♫ Music is playing ♫",
-        f"[00:08.00] {title}",
-        f"[00:16.00] — {artist}",
+        f"[00:08.00] {resolved_title}",
+        f"[00:16.00] — {resolved_artist}",
         "[00:28.00] (Lyrics not available for this track)",
         "[00:44.00] ♫ Enjoy the music ♫",
-        f"[01:10.00] ♫ {title} ♫",
+        f"[01:10.00] ♫ {resolved_title} ♫",
         "[01:50.00] (Music Playing)",
         "[02:30.00] ♫ ♫ ♫",
     ]
-    return {
+    return cache_and_return({
         "track_id": track_id,
         "synced": True,
         "source": "MuseFlow Ambient",
         "lyrics": "\n".join(lrc_fallback)
-    }
+    })
 
 
 

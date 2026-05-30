@@ -11,6 +11,7 @@ This module's job is to:
      don't break during the migration window.
 """
 
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -74,6 +75,37 @@ def get_current_user(
     token = credentials.credentials
 
     try:
+        # First, try to decode the token locally using our local JWT_SECRET with HS256 (Local Sandbox Mode)
+        try:
+            payload: Dict[str, Any] = pyjwt.decode(
+                token,
+                settings.JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_exp": True},
+            )
+            # Ensure profile row exists in local DB
+            try:
+                user_uuid = UUID(payload["sub"])
+                user_profile = db.get(User, user_uuid)
+                if not user_profile:
+                    new_profile = User(
+                        id=user_uuid,
+                        email=payload.get("email", "guest@museflow.local"),
+                        display_name=payload.get("user_metadata", {}).get("display_name", "Local Guest"),
+                        avatar_url=payload.get("avatar_url"),
+                        settings={}
+                    )
+                    db.add(new_profile)
+                    db.commit()
+                    db.refresh(new_profile)
+            except Exception as db_err:
+                print(f"[Auth] Local profiles upsert failed: {db_err}")
+                db.rollback()
+            return payload
+        except pyjwt.InvalidTokenError:
+            # If local decode fails, proceed to standard Supabase JWKS verification
+            pass
+
         client = _get_jwks_client()
         signing_key = client.get_signing_key_from_jwt(token)
 
@@ -146,6 +178,59 @@ def read_users_me(user: Dict[str, Any] = Depends(get_current_user)):
         "avatar_url": (user.get("user_metadata") or {}).get("avatar_url"),
         "role": user.get("role"),
         "aud": user.get("aud"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /guest – generate a local mock guest JWT (Local Sandbox Mode)
+# ---------------------------------------------------------------------------
+@router.post("/guest")
+def login_as_guest(db: Session = Depends(get_db)):
+    """
+    Generate a Local Guest Token for Sandbox Dev Mode when Supabase is offline.
+    """
+    guest_uuid = "00000000-0000-0000-0000-000000000000"
+    payload = {
+        "sub": guest_uuid,
+        "email": "guest@museflow.local",
+        "user_metadata": {
+            "display_name": "Local Guest"
+        },
+        "role": "authenticated",
+        "aud": "authenticated",
+        "exp": datetime.utcnow() + timedelta(days=7)
+    }
+    token = pyjwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+    
+    # Ensure profile row exists in local SQLite DB
+    try:
+        user_uuid = UUID(guest_uuid)
+        user_profile = db.get(User, user_uuid)
+        if not user_profile:
+            new_profile = User(
+                id=user_uuid,
+                email="guest@museflow.local",
+                display_name="Local Guest",
+                avatar_url=None,
+                settings={}
+            )
+            db.add(new_profile)
+            db.commit()
+    except Exception as db_err:
+        print(f"[Auth] Guest profiles upsert failed: {db_err}")
+        db.rollback()
+
+    return {
+        "session": {
+            "access_token": token,
+            "user": {
+                "id": guest_uuid,
+                "email": "guest@museflow.local",
+                "user_metadata": {
+                    "display_name": "Local Guest"
+                }
+            }
+        }
     }
 
 

@@ -15,11 +15,41 @@ export const MobileNav: React.FC = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-    });
+    // Check if there is already a local guest token in localStorage
+    const localToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    let isGuest = false;
+    if (localToken) {
+      try {
+        const payload = JSON.parse(atob(localToken.split(".")[1]));
+        if (payload && payload.email === "guest@museflow.local") {
+          isGuest = true;
+          setUser({
+            id: payload.sub,
+            email: payload.email,
+            user_metadata: {
+              display_name: payload.user_metadata?.display_name || "Local Guest"
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("[MobileNav] Failed to parse local token:", e);
+      }
+    }
+
+    if (!isGuest) {
+      // Get initial session
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+      });
+    }
+
+    // Listen to changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null);
+      if (session?.user) {
+        setUser(session.user);
+      } else if (!isGuest) {
+        setUser(null);
+      }
     });
     const handleOpenAuth = () => {
       setIsAuthOpen(true);

@@ -5,6 +5,31 @@ import { Play, Sparkles, Flame, RefreshCw, Plus, Disc, Music, Layers } from "luc
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, Track } from "../store/usePlaybackStore";
 
+const getThumbnailUrl = (item: any) => {
+  if (!item) return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
+  
+  if (Array.isArray(item.thumbnails) && item.thumbnails.length > 0) {
+    return item.thumbnails[0].url || "";
+  }
+  
+  if (Array.isArray(item.thumbnail) && item.thumbnail.length > 0) {
+    return item.thumbnail[0].url || "";
+  }
+  
+  if (item.thumbnail && typeof item.thumbnail === "object") {
+    if (Array.isArray(item.thumbnail.thumbnails) && item.thumbnail.thumbnails.length > 0) {
+      return item.thumbnail.thumbnails[0].url || "";
+    }
+    return item.thumbnail.url || "";
+  }
+  
+  if (typeof item.thumbnail === "string") {
+    return item.thumbnail;
+  }
+  
+  return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
+};
+
 export default function HomePage() {
   const [trending, setTrending] = useState<any[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -14,6 +39,9 @@ export default function HomePage() {
 
   const { playTrack, setQueue, currentTrack } = usePlaybackStore();
   const [recentlyPlayed, setRecentlyPlayed] = useState<any[]>([]);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [recSourceTrackName, setRecSourceTrackName] = useState("");
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
 
   // Load recently played tracks dynamically on song transitions
   useEffect(() => {
@@ -102,6 +130,75 @@ export default function HomePage() {
     };
     fetchTrending();
   }, []);
+
+  // Fetch recommendations based on recently played or trending fallback
+  useEffect(() => {
+    const fetchRecommendations = async () => {
+      let seedTrack: any = null;
+
+      if (recentlyPlayed.length > 0) {
+        seedTrack = recentlyPlayed[0];
+      } else if (trending.length > 0) {
+        seedTrack = trending[0];
+      }
+
+      if (!seedTrack) return;
+
+      const seedId = seedTrack.videoId || seedTrack.track_id;
+      if (!seedId) return;
+
+      setIsLoadingRecommendations(true);
+      try {
+        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+        const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${seedId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setRecommendations(data);
+            setRecSourceTrackName(seedTrack.title);
+            setIsLoadingRecommendations(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("[Frontend] Failed to fetch recommendations from backend.", err);
+      }
+
+      // Local premium mock fallback if offline/backend fails
+      const mockRecommendations = [
+        {
+          videoId: "kJQP7kiw5Fk",
+          title: "Fix You",
+          author: "Coldplay",
+          thumbnails: [{ url: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=300" }]
+        },
+        {
+          videoId: "y6120QOlsfU",
+          title: "Sandstorm",
+          author: "Darude",
+          thumbnails: [{ url: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=300" }]
+        },
+        {
+          videoId: "dXF-a21k00Y",
+          title: "Midnight City",
+          author: "M83",
+          thumbnails: [{ url: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?q=80&w=300" }]
+        },
+        {
+          videoId: "4NRXx6U8ABQ",
+          title: "Blinding Lights",
+          author: "The Weeknd",
+          thumbnails: [{ url: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300" }]
+        }
+      ];
+      setRecommendations(mockRecommendations);
+      setRecSourceTrackName(seedTrack.title);
+      setIsLoadingRecommendations(false);
+    };
+
+    fetchRecommendations();
+  }, [recentlyPlayed, trending]);
+
 
   const handleGenerateVibe = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,7 +344,7 @@ export default function HomePage() {
               >
                 <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-zinc-800 shadow-md">
                   <img 
-                    src={track.thumbnail} 
+                    src={getThumbnailUrl(track)} 
                     alt={track.title} 
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
@@ -264,6 +361,95 @@ export default function HomePage() {
           </div>
         </motion.section>
       )}
+      {/* --- RECOMMENDED SECTION --- */}
+      {recommendations.length > 0 && (
+        <motion.section 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+          className="space-y-4"
+        >
+          <div className="flex items-center justify-between select-none">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400">
+                <Sparkles className="w-5 h-5 fill-pink-400/20" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-white font-outfit">Recommended for You</h2>
+                {recSourceTrackName && (
+                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider mt-0.5">
+                    Inspired by <span className="text-purple-400">"{recSourceTrackName}"</span>
+                  </p>
+                )}
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                const tracksToPlay: Track[] = recommendations.map((item: any) => ({
+                  track_id: item.videoId || item.track_id,
+                  title: item.title,
+                  artists: item.artists ? (Array.isArray(item.artists) ? item.artists.map((a: any) => a.name).join(", ") : item.artists) : item.author || "Unknown",
+                  thumbnail: getThumbnailUrl(item)
+                }));
+                setQueue(tracksToPlay, 0);
+              }}
+              className="text-xs font-semibold text-purple-400 hover:text-purple-300 transition-colors"
+            >
+              Play Vibe Mix
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6 select-none">
+            {recommendations.slice(0, 6).map((item, idx) => {
+              const trackId = item.videoId || item.track_id;
+              const title = item.title;
+              const artistNames = item.artists 
+                ? (Array.isArray(item.artists) ? item.artists.map((a: any) => a.name).join(", ") : item.artists) 
+                : item.author || "Unknown Artist";
+              const thumbnail = getThumbnailUrl(item);
+
+              return (
+                <motion.div 
+                  key={idx}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 + idx * 0.03 }}
+                  onClick={() => playTrack({
+                    track_id: trackId,
+                    title,
+                    artists: artistNames,
+                    thumbnail
+                  }, recommendations.map((t: any) => ({
+                    track_id: t.videoId || t.track_id,
+                    title: t.title,
+                    artists: t.artists ? (Array.isArray(t.artists) ? t.artists.map((a: any) => a.name).join(", ") : t.artists) : t.author || "Unknown Artist",
+                    thumbnail: getThumbnailUrl(t)
+                  })))}
+                  className="glass-card rounded-2xl p-4 flex flex-col gap-3 cursor-pointer group"
+                >
+                  <div className="relative aspect-square rounded-xl overflow-hidden shadow-lg bg-zinc-900/40">
+                    <img 
+                      src={thumbnail} 
+                      alt={title} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                    />
+                    <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white scale-75 opacity-0 group-hover:opacity-100 group-hover:scale-100 transition-all duration-300 shadow-[0_4px_15px_rgba(168,85,247,0.4)]">
+                        <Play className="w-5 h-5 fill-white ml-0.5" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="min-w-0 px-0.5">
+                    <h4 className="text-sm font-semibold truncate text-white group-hover:text-purple-300 transition-colors duration-300">{title}</h4>
+                    <p className="text-xs text-zinc-400 truncate mt-1 group-hover:text-zinc-300 transition-colors duration-300">{artistNames}</p>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.section>
+      )}
+
 
 
       {/* --- AI VIBE PLAYLIST GENERATOR (SPOTLIGHT) --- */}

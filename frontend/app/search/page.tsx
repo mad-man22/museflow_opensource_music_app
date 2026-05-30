@@ -5,6 +5,31 @@ import { Search as SearchIcon, Music, Play, Loader2, Disc, ArrowRight, Sparkles 
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, Track } from "../../store/usePlaybackStore";
 
+const getThumbnailUrl = (item: any) => {
+  if (!item) return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
+  
+  if (Array.isArray(item.thumbnails) && item.thumbnails.length > 0) {
+    return item.thumbnails[0].url || "";
+  }
+  
+  if (Array.isArray(item.thumbnail) && item.thumbnail.length > 0) {
+    return item.thumbnail[0].url || "";
+  }
+  
+  if (item.thumbnail && typeof item.thumbnail === "object") {
+    if (Array.isArray(item.thumbnail.thumbnails) && item.thumbnail.thumbnails.length > 0) {
+      return item.thumbnail.thumbnails[0].url || "";
+    }
+    return item.thumbnail.url || "";
+  }
+  
+  if (typeof item.thumbnail === "string") {
+    return item.thumbnail;
+  }
+  
+  return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
+};
+
 // Rich local database of classic tracks for instant offline lookup/fallbacks
 const OFFLINE_DATABASE = [
   {
@@ -151,9 +176,7 @@ export default function SearchPage() {
               ? (Array.isArray(item.artists) ? item.artists.map((a: any) => a.name).join(", ") : item.artists) 
               : item.author || "Unknown Artist";
 
-            const thumbnail = item.thumbnails && item.thumbnails.length > 0
-              ? item.thumbnails[0].url
-              : item.thumbnail || "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=150";
+            const thumbnail = getThumbnailUrl(item);
 
             return {
               track_id: item.videoId || item.browseId,
@@ -196,30 +219,44 @@ export default function SearchPage() {
     setQuery(vibeQuery);
   };
 
-  const playSong = (track: any, contextQueue?: any[]) => {
+  const playSong = async (track: any) => {
     // Map track keys to fit the Zustand Track contract
     const resolvedTrack: Track = {
       track_id: track.track_id || track.videoId,
       title: track.title,
       artists: track.artists,
       album: track.album,
-      thumbnail: track.thumbnail
+      thumbnail: getThumbnailUrl(track)
     };
 
-    // If a context queue is provided, map it to the Track format
-    const sourceList = contextQueue || results;
-    
-    const mappedQueue = sourceList
-      .filter(item => item.category !== "artists" && item.category !== "albums") // Filter out pure artists/albums if they get mixed in
-      .map(item => ({
-        track_id: item.track_id || item.videoId,
-        title: item.title,
-        artists: item.artists,
-        album: item.album,
-        thumbnail: item.thumbnail
-      }));
+    // Start playing the song immediately in a single-song queue
+    playTrack(resolvedTrack, [resolvedTrack]);
 
-    playTrack(resolvedTrack, mappedQueue.length > 0 ? mappedQueue : [resolvedTrack]);
+    // Fetch related recommendations in the background
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${resolvedTrack.track_id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const mappedRecs = data.map(item => ({
+            track_id: item.videoId || item.track_id,
+            title: item.title,
+            artists: item.artists ? (Array.isArray(item.artists) ? item.artists.map((a: any) => a.name).join(", ") : item.artists) : item.author || "Unknown Artist",
+            thumbnail: getThumbnailUrl(item)
+          }));
+          
+          // Imperatively update Zustand queue using usePlaybackStore.setState
+          // This appends recommendations so "Next" plays from the recommendation section!
+          usePlaybackStore.setState({
+            queue: [resolvedTrack, ...mappedRecs],
+            currentIndex: 0
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[Search Autoplay] Failed to load recommendations:", err);
+    }
   };
 
   return (
@@ -296,7 +333,7 @@ export default function SearchPage() {
                 <div className="lg:col-span-2 flex flex-col gap-4">
                   <h3 className="text-base font-bold text-zinc-400 select-none">Top Result</h3>
                   <motion.div
-                    onClick={() => playSong(results[0], results)}
+                    onClick={() => playSong(results[0])}
                     whileHover={{ scale: 1.005 }}
                     className="glass-panel p-6 rounded-3xl border border-white/5 cursor-pointer group flex flex-col justify-between h-[320px] relative overflow-hidden shadow-2xl"
                   >
@@ -340,7 +377,7 @@ export default function SearchPage() {
                     {results.slice(0, 4).map((item, idx) => (
                       <motion.div
                         key={item.track_id + idx}
-                        onClick={() => playSong(item, results)}
+                        onClick={() => playSong(item)}
                         whileHover={{ x: 4 }}
                         className="flex items-center justify-between p-3 rounded-2xl glass-card cursor-pointer group/row select-none animate-fadeIn"
                       >
@@ -383,7 +420,7 @@ export default function SearchPage() {
                 {results.map((item, idx) => (
                   <motion.div
                     key={item.track_id + idx}
-                    onClick={() => playSong(item, results)}
+                    onClick={() => playSong(item)}
                     whileHover={{ x: 4 }}
                     className="flex items-center justify-between p-3 rounded-2xl glass-card cursor-pointer group/row select-none animate-fadeIn"
                   >
@@ -458,7 +495,7 @@ export default function SearchPage() {
                 {OFFLINE_DATABASE.slice(0, 5).map((track, idx) => (
                   <div
                     key={track.videoId + idx}
-                    onClick={() => playSong(track, OFFLINE_DATABASE.slice(0, 5))}
+                    onClick={() => playSong(track)}
                     className="glass-card rounded-2xl p-4 flex flex-col gap-3 cursor-pointer group"
                   >
                     <div className="relative aspect-square rounded-xl overflow-hidden shadow-md">

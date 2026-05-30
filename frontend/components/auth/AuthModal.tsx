@@ -85,6 +85,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
     }
   };
 
+  const handleGuestLogin = async () => {
+    setErrorText(null); setSuccessText(null); setIsLoading(true);
+    try {
+      const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+      const res = await fetch(`http://${host}:8000/api/v1/auth/guest`, {
+        method: "POST"
+      });
+      if (!res.ok) throw new Error("Could not connect to the local guest service.");
+      const data = await res.json();
+      if (data.session) {
+        localStorage.setItem("token", data.session.access_token);
+        setSuccessText("Logged in as Local Guest! Syncing profile…");
+        setTimeout(() => { onSuccess?.(); onClose(); window.location.reload(); }, 1400);
+      }
+    } catch (err: any) {
+      setErrorText(err.message || "Failed to log in as guest.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Only run portal on the client (no document on the server)
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -349,6 +370,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                     ) : (
                       <><span>{activeTab === "signin" ? "Access MuseFlow" : "Create My Account"}</span><ArrowRight className="w-5 h-5" /></>
                     )}
+                  </button>
+
+                  {/* Local Sandbox Guest Option */}
+                  <div className="relative flex items-center justify-center my-4 select-none">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/5" /></div>
+                    <span className="relative px-3 bg-[#0a0a12] text-[10px] text-zinc-500 font-extrabold uppercase tracking-widest">or</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGuestLogin}
+                    disabled={isLoading}
+                    className="w-full py-3.5 px-5 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/5 border border-white/5 hover:border-purple-500/30 text-purple-300 hover:text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95 transition-all duration-300 disabled:opacity-50"
+                  >
+                    <Sparkles className="w-4 h-4 fill-purple-300/10" />
+                    <span>Continue as Local Guest (Sandbox Mode)</span>
                   </button>
                 </form>
 

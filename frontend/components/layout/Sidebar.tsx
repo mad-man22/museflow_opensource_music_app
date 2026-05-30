@@ -16,22 +16,46 @@ export const Sidebar: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.access_token) {
-        localStorage.setItem("token", session.access_token);
-      } else {
-        localStorage.removeItem("token");
+    // Check if there is already a local guest token in localStorage
+    const localToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    let isGuest = false;
+    if (localToken) {
+      try {
+        const payload = JSON.parse(atob(localToken.split(".")[1]));
+        if (payload && payload.email === "guest@museflow.local") {
+          isGuest = true;
+          setUser({
+            id: payload.sub,
+            email: payload.email,
+            user_metadata: {
+              display_name: payload.user_metadata?.display_name || "Local Guest"
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("[Sidebar] Failed to parse local token:", e);
       }
-    });
+    }
+
+    if (!isGuest) {
+      // Get initial session
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        if (session?.access_token) {
+          localStorage.setItem("token", session.access_token);
+        } else {
+          localStorage.removeItem("token");
+        }
+      });
+    }
 
     // Listen to changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
       if (session?.access_token) {
+        setUser(session.user);
         localStorage.setItem("token", session.access_token);
-      } else {
+      } else if (!isGuest) {
+        setUser(null);
         localStorage.removeItem("token");
       }
     });

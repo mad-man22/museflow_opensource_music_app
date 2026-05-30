@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Play, Pause, SkipForward, SkipBack, Shuffle, Repeat,
-  Volume2, VolumeX, Maximize2, Minimize2, Music, Heart, Mic2, Sparkles, Plus
+  Volume2, VolumeX, Maximize2, Minimize2, Music, Heart, Mic2, Sparkles, Plus, RefreshCw,
+  Trash2, ChevronUp, ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, getAudioSrc } from "../../store/usePlaybackStore";
@@ -11,11 +12,39 @@ import { EqualizerVisualizer } from "./EqualizerVisualizer";
 import { SyncedLyrics } from "../lyrics/SyncedLyrics";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
 
+const getThumbnailUrl = (item: any) => {
+  if (!item) return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
+  
+  if (Array.isArray(item.thumbnails) && item.thumbnails.length > 0) {
+    return item.thumbnails[0].url || "";
+  }
+  
+  if (Array.isArray(item.thumbnail) && item.thumbnail.length > 0) {
+    return item.thumbnail[0].url || "";
+  }
+  
+  if (item.thumbnail && typeof item.thumbnail === "object") {
+    if (Array.isArray(item.thumbnail.thumbnails) && item.thumbnail.thumbnails.length > 0) {
+      return item.thumbnail.thumbnails[0].url || "";
+    }
+    return item.thumbnail.url || "";
+  }
+  
+  if (typeof item.thumbnail === "string") {
+    return item.thumbnail;
+  }
+  
+  return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
+};
+
 export const PersistentPlayer: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [isAddToPlaylistOpen, setIsAddToPlaylistOpen] = useState(false);
+  const [playerTab, setPlayerTab] = useState<"lyrics" | "queue">("lyrics");
+  const [relatedTracks, setRelatedTracks] = useState<any[]>([]);
+  const [isLoadingRelated, setIsLoadingRelated] = useState(false);
 
   // Streaming recovery
   const [hasFallbackError, setHasFallbackError] = useState(false);
@@ -25,7 +54,8 @@ export const PersistentPlayer: React.FC = () => {
   // ── Zustand ────────────────────────────────────────────────────────────────
   const {
     currentTrack, isPlaying, currentTime, duration, volume, isMuted,
-    isRepeat, isShuffle,
+    isRepeat, isShuffle, queue, currentIndex, playTrack, setQueue, addToQueue,
+    removeFromQueue, clearQueue, reorderQueue,
     setAudioRef, updateProgress, setDuration, setVolume, toggleMute,
     nextTrack, prevTrack, seekTo, togglePlay, toggleRepeat, toggleShuffle,
   } = usePlaybackStore();
@@ -118,6 +148,54 @@ export const PersistentPlayer: React.FC = () => {
     const parsed = stored ? JSON.parse(stored) : [];
     setIsLiked(parsed.some((f: any) => f.track_id === currentTrack.track_id));
   }, [currentTrack]);
+
+  // Fetch related recommendations whenever currentTrack changes
+  useEffect(() => {
+    if (!currentTrack || !currentTrack.track_id) return;
+    
+    const fetchRelated = async () => {
+      setIsLoadingRelated(true);
+      try {
+        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+        const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${currentTrack.track_id}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setRelatedTracks(data);
+          }
+        }
+      } catch (err) {
+        console.warn("[Player] Failed to fetch related tracks.", err);
+      } finally {
+        setIsLoadingRelated(false);
+      }
+    };
+    
+    fetchRelated();
+  }, [currentTrack]);
+
+  const playRecommendedTrack = (track: any) => {
+    const normalizedTrack = {
+      track_id: track.videoId || track.track_id,
+      title: track.title,
+      artists: track.artists 
+        ? (Array.isArray(track.artists) ? track.artists.map((a: any) => a.name).join(", ") : track.artists) 
+        : track.author || "Unknown Artist",
+      thumbnail: track.thumbnails ? track.thumbnails[0].url : track.thumbnail
+    };
+    
+    // Inject right after currentIndex
+    const newQueue = [...queue];
+    const existsIdx = newQueue.findIndex(t => t.track_id === normalizedTrack.track_id);
+    
+    if (existsIdx > -1) {
+      playTrack(newQueue[existsIdx], newQueue);
+    } else {
+      const insertIdx = currentIndex + 1;
+      newQueue.splice(insertIdx, 0, normalizedTrack);
+      playTrack(normalizedTrack, newQueue);
+    }
+  };
 
   // ── Keyboard: Space = play/pause ─────────────────────────────────────────────
   useEffect(() => {
@@ -478,9 +556,229 @@ export const PersistentPlayer: React.FC = () => {
                 </div>
               </div>
 
-              {/* Lyrics */}
-              <div className="w-full lg:w-1/2 flex-1 lg:h-[450px] overflow-hidden flex flex-col justify-center min-h-[220px]">
-                <SyncedLyrics trackId={currentTrack.track_id} />
+              {/* Right panel: Lyrics vs. Queue & Related */}
+              <div className="w-full lg:w-1/2 flex-1 lg:h-[480px] overflow-hidden flex flex-col min-h-[280px]">
+                {/* Tab selector */}
+                <div className="flex border-b border-white/5 mb-4 justify-center lg:justify-start gap-6 select-none shrink-0">
+                  <button 
+                    onClick={() => setPlayerTab("lyrics")}
+                    className={`pb-2 text-xs font-bold tracking-wider uppercase transition-all duration-300 relative ${
+                      playerTab === "lyrics" 
+                        ? "text-purple-400 font-extrabold" 
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    <span>Lyrics</span>
+                    {playerTab === "lyrics" && (
+                      <motion.div 
+                        layoutId="fullscreen-tab-indicator" 
+                        className="absolute bottom-0 left-0 w-full h-[2px] bg-gradient-to-r from-purple-500 to-pink-500" 
+                      />
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => setPlayerTab("queue")}
+                    className={`pb-2 text-xs font-bold tracking-wider uppercase transition-all duration-300 relative ${
+                      playerTab === "queue" 
+                        ? "text-purple-400 font-extrabold" 
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    <span>Up Next & Related</span>
+                    {playerTab === "queue" && (
+                      <motion.div 
+                        layoutId="fullscreen-tab-indicator" 
+                        className="absolute bottom-0 left-0 w-full h-[2px] bg-gradient-to-r from-purple-500 to-pink-500" 
+                      />
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-hidden relative">
+                  <AnimatePresence mode="wait">
+                    {playerTab === "lyrics" ? (
+                      <motion.div
+                        key="lyrics"
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 10 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full h-full"
+                      >
+                        <SyncedLyrics trackId={currentTrack.track_id} />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="queue"
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full h-full glass-panel rounded-2xl p-4 flex flex-col overflow-hidden border border-white/5 shadow-2xl relative"
+                      >
+                        {/* Glowing decor */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl pointer-events-none" />
+                        
+                        <div className="flex-1 overflow-y-auto space-y-5 pr-1" style={{ scrollBehavior: "smooth" }}>
+                          
+                          {/* --- UP NEXT (QUEUE) --- */}
+                          {queue.slice(currentIndex + 1).length > 0 && (
+                            <div className="space-y-2.5">
+                              <div className="flex items-center justify-between select-none">
+                                <h3 className="text-xs font-extrabold tracking-wider uppercase text-zinc-500 font-outfit">Up Next</h3>
+                                <button 
+                                  onClick={() => {
+                                    clearQueue();
+                                    setToastText("Queue Cleared");
+                                    setTimeout(() => setToastText(null), 2000);
+                                  }}
+                                  className="text-[10px] font-bold tracking-wider uppercase text-red-400 hover:text-red-300 transition-colors"
+                                >
+                                  Clear All
+                                </button>
+                              </div>
+                              <div className="space-y-1.5">
+                                {queue.slice(currentIndex + 1, currentIndex + 16).map((track, idx) => {
+                                  const absoluteIdx = currentIndex + 1 + idx;
+                                  const displayArtists = typeof track.artists === "string" 
+                                    ? track.artists 
+                                    : Array.isArray(track.artists)
+                                      ? track.artists.map((a: any) => a.name || a).join(", ")
+                                      : track.artists?.name || "Unknown";
+
+                                  return (
+                                    <div 
+                                      key={track.track_id + idx}
+                                      onClick={() => playTrack(track, queue)}
+                                      className="flex items-center justify-between p-2 rounded-xl bg-white/0 hover:bg-white/5 border border-white/0 hover:border-white/5 cursor-pointer group transition-all duration-300"
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        <span className="text-[10px] font-bold text-zinc-600 w-4 text-center shrink-0 group-hover:text-purple-400 select-none">
+                                          {idx + 1}
+                                        </span>
+                                        <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-zinc-800 relative">
+                                          <img src={track.thumbnail} alt={track.title} className="w-full h-full object-cover" />
+                                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                            <Play className="w-3.5 h-3.5 text-white fill-white" />
+                                          </div>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <h4 className="text-xs font-bold text-white truncate group-hover:text-purple-300 transition-colors">{track.title}</h4>
+                                          <p className="text-[10px] text-zinc-400 truncate mt-0.5">{displayArtists}</p>
+                                        </div>
+                                      </div>
+
+                                      {/* Customization controls */}
+                                      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity ml-3 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                        {absoluteIdx > currentIndex + 1 && (
+                                          <button 
+                                            onClick={() => reorderQueue(absoluteIdx, absoluteIdx - 1)}
+                                            className="w-7 h-7 rounded-lg bg-white/0 hover:bg-white/10 flex items-center justify-center border border-white/0 hover:border-white/10 text-zinc-400 hover:text-white transition-all"
+                                            title="Move Up"
+                                          >
+                                            <ChevronUp className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                        {absoluteIdx < queue.length - 1 && (
+                                          <button 
+                                            onClick={() => reorderQueue(absoluteIdx, absoluteIdx + 1)}
+                                            className="w-7 h-7 rounded-lg bg-white/0 hover:bg-white/10 flex items-center justify-center border border-white/0 hover:border-white/10 text-zinc-400 hover:text-white transition-all"
+                                            title="Move Down"
+                                          >
+                                            <ChevronDown className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                        <button 
+                                          onClick={() => {
+                                            removeFromQueue(track.track_id);
+                                            setToastText("Removed from Queue");
+                                            setTimeout(() => setToastText(null), 2000);
+                                          }}
+                                          className="w-7 h-7 rounded-lg bg-white/0 hover:bg-red-500/10 flex items-center justify-center border border-white/0 hover:border-red-500/20 text-zinc-400 hover:text-red-400 transition-all"
+                                          title="Remove from Queue"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* --- RECOMMENDED VIBE (RELATED) --- */}
+                          <div className="space-y-2.5">
+                            <div className="flex items-center gap-2 select-none">
+                              <Sparkles className="w-3.5 h-3.5 text-pink-400 fill-pink-400/10" />
+                              <h3 className="text-xs font-extrabold tracking-wider uppercase text-zinc-500 font-outfit">Recommended Vibe</h3>
+                            </div>
+
+                            {isLoadingRelated ? (
+                              <div className="py-8 flex flex-col items-center justify-center gap-3">
+                                <RefreshCw className="w-5 h-5 animate-spin text-purple-400" />
+                                <p className="text-[10px] font-bold text-zinc-500 tracking-wider uppercase">Loading recommendations...</p>
+                              </div>
+                            ) : relatedTracks.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {relatedTracks.slice(0, 10).map((track, idx) => {
+                                  const title = track.title;
+                                  const artistNames = track.artists 
+                                    ? (Array.isArray(track.artists) ? track.artists.map((a: any) => a.name).join(", ") : track.artists) 
+                                    : track.author || "Unknown Artist";
+                                  const thumbnail = getThumbnailUrl(track);
+
+                                  return (
+                                    <div 
+                                      key={track.videoId || track.track_id || idx}
+                                      onClick={() => playRecommendedTrack(track)}
+                                      className="flex items-center justify-between p-2 rounded-xl bg-white/0 hover:bg-white/5 border border-white/0 hover:border-white/5 cursor-pointer group transition-all duration-300"
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-zinc-800 relative">
+                                          <img src={thumbnail} alt={title} className="w-full h-full object-cover" />
+                                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                            <Play className="w-3.5 h-3.5 text-white fill-white" />
+                                          </div>
+                                        </div>
+                                        <div className="min-w-0">
+                                          <h4 className="text-xs font-bold text-white truncate group-hover:text-purple-300 transition-colors">{title}</h4>
+                                          <p className="text-[10px] text-zinc-400 truncate mt-0.5">{artistNames}</p>
+                                        </div>
+                                      </div>
+                                      
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const normalizedTrack = {
+                                            track_id: track.videoId || track.track_id,
+                                            title: track.title,
+                                            artists: artistNames,
+                                            thumbnail
+                                          };
+                                          addToQueue(normalizedTrack);
+                                          setToastText("Added to Queue");
+                                          setTimeout(() => setToastText(null), 2500);
+                                        }}
+                                        className="w-7 h-7 rounded-lg bg-white/0 hover:bg-white/10 flex items-center justify-center border border-white/0 hover:border-white/10 active:scale-90 transition-transform opacity-0 group-hover:opacity-100"
+                                        title="Add to Queue"
+                                      >
+                                        <Plus className="w-4 h-4 text-zinc-400 group-hover:text-white" />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-500 italic py-4 select-none">No recommendation data available</p>
+                            )}
+                          </div>
+                          
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
             </div>
 

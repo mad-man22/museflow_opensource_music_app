@@ -105,6 +105,8 @@ export const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({
         throw new Error(body.detail || "Failed to add track.");
       }
       setAdded(playlistId);
+      // Dispatch library-updated event for reactive syncing
+      window.dispatchEvent(new Event("library-updated"));
       setTimeout(() => { setAdded(null); onClose(); }, 1200);
     } catch (e: any) {
       setError(e.message);
@@ -142,6 +144,8 @@ export const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({
       setAdded(created.id);
       setShowCreate(false);
       setNewTitle("");
+      // Dispatch library-updated event for reactive syncing
+      window.dispatchEvent(new Event("library-updated"));
       setTimeout(() => { setAdded(null); onClose(); }, 1200);
     } catch (e: any) {
       setCreateError(e.message || "Create failed.");

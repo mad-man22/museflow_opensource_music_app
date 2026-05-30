@@ -4,6 +4,8 @@ from ytmusicapi import YTMusic
 class YTMusicClient:
     _instance: Optional[YTMusic] = None
 
+    _track_details_cache: Dict[str, Any] = {}
+
     @classmethod
     def get_client(cls) -> YTMusic:
         if cls._instance is None:
@@ -20,6 +22,9 @@ class YTMusicClient:
 
     @classmethod
     def get_track_details(cls, track_id: str) -> Dict[str, Any]:
+        if track_id in cls._track_details_cache:
+            return cls._track_details_cache[track_id]
+
         client = cls.get_client()
         # Try get_song (substantially faster, 2s vs 15s, and immune to SSL/EOF playlist retrieval errors)
         try:
@@ -31,7 +36,7 @@ class YTMusicClient:
                 seconds = length_sec % 60
                 length_str = f"{minutes}:{seconds:02d}"
                 
-                return {
+                res = {
                     "videoId": details.get("videoId"),
                     "title": details.get("title"),
                     "author": details.get("author"),
@@ -41,6 +46,8 @@ class YTMusicClient:
                     "album": {"name": details.get("title")}, # Mock album for compatibility
                     "duration_seconds": length_sec
                 }
+                cls._track_details_cache[track_id] = res
+                return res
         except Exception as e:
             print(f"[YTMusicClient] Optimized get_track_details failed, falling back: {e}")
             
@@ -49,7 +56,10 @@ class YTMusicClient:
         tracks = watch_playlist.get("tracks", [])
         if not tracks:
             raise ValueError(f"Metadata not found for track: {track_id}")
-        return tracks[0]
+        
+        res = tracks[0]
+        cls._track_details_cache[track_id] = res
+        return res
 
     @classmethod
     def get_artist_details(cls, artist_id: str) -> Dict[str, Any]:
