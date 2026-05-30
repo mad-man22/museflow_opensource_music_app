@@ -8,15 +8,19 @@ Platform.shim.eval = async (data) => {
 
 const CLIENTS = [
   'WEB',
-  'WEB_REMIX',
-  'ANDROID',
-  'ANDROID_MUSIC',
-  'YTKIDS',
-  'TV',
   'MWEB',
-  'IOS',
-  'TV_EMBEDDED',
-  'ANDROID_VR'
+  'WEB_KIDS',
+  'WEB_REMIX',
+  'iOS',
+  'ANDROID',
+  'ANDROID_VR',
+  'ANDROID_MUSIC',
+  'ANDROID_CREATOR',
+  'TVHTML5',
+  'TVHTML5_SIMPLY',
+  'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+  'WEB_EMBEDDED_PLAYER',
+  'WEB_CREATOR'
 ];
 
 async function testClient(clientName: string) {
@@ -24,10 +28,10 @@ async function testClient(clientName: string) {
   try {
     const yt = await Innertube.create({ client_type: clientName as any });
     console.log('Fetching basic info...');
-    const info = await yt.getBasicInfo('tOaizzQG8Cw');
+    const info = await yt.getBasicInfo('YALvuUpY_b0');
     
     if (!info.streaming_data) {
-      console.log('No streaming data found.');
+      console.log('No streaming data found. Playability status:', JSON.stringify(info.playability_status || {}, null, 2));
       return;
     }
 

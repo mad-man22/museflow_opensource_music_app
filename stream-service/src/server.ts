@@ -58,7 +58,7 @@ app.get('/play', async (req: Request, res: Response) => {
     res.setHeader('Content-Type', streamDetails.mimeType || 'audio/mpeg');
     
     const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Android 10; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0'
+      'User-Agent': streamDetails.userAgent || 'Mozilla/5.0 (Android 10; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0'
     };
     if (req.headers.range) {
       headers['Range'] = req.headers.range as string;
