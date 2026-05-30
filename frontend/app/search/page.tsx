@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Search as SearchIcon, Music, Play, Loader2, Disc, ArrowRight, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, Track } from "../../store/usePlaybackStore";
+import { API_URL } from "../../lib/api";
 
 const getThumbnailUrl = (item: any) => {
   if (!item) return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
@@ -160,8 +161,7 @@ export default function SearchPage() {
     };
 
     const targetType = filterMapping[filter as keyof typeof filterMapping];
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const url = `http://${host}:8000/api/v1/tracks/search?query=${encodeURIComponent(searchQuery)}${targetType ? `&type=${targetType}` : ""}`;
+    const url = `${API_URL}/api/v1/tracks/search?query=${encodeURIComponent(searchQuery)}${targetType ? `&type=${targetType}` : ""}`;
 
     try {
       const res = await fetch(url, {
@@ -234,8 +234,7 @@ export default function SearchPage() {
 
     // Fetch related recommendations in the background
     try {
-      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-      const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${resolvedTrack.track_id}`);
+      const res = await fetch(`${API_URL}/api/v1/tracks/related/${resolvedTrack.track_id}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {

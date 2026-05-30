@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { API_URL, STREAM_SERVICE_URL } from '../lib/api';
 
 export interface Track {
   track_id: string;
@@ -23,8 +24,7 @@ export const getAudioSrc = (track: Track) => {
     ) % backupStreams.length;
     return backupStreams[index];
   }
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  return `http://${hostname}:3001/play?videoId=${track.track_id}`;
+  return `${STREAM_SERVICE_URL}/play?videoId=${track.track_id}`;
 };
 
 interface PlaybackState {
@@ -163,8 +163,7 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
           if (currentTrack) {
             try {
               console.log("[Endless Autoplay] Queue ended, loading recommended vibe for song:", currentTrack.title);
-              const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-              const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${currentTrack.track_id}`);
+              const res = await fetch(`${API_URL}/api/v1/tracks/related/${currentTrack.track_id}`);
               
               if (res.ok) {
                 const data = await res.json();

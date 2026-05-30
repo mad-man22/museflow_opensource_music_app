@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, Track } from "../../store/usePlaybackStore";
+import { API_URL } from "../../lib/api";
 
 // Type definitions
 interface LibraryTrack {
@@ -106,10 +107,8 @@ export default function LibraryPage() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        
         // Fetch favorites
-        const favsRes = await fetch(`http://${host}:8000/api/v1/tracks/favorites`, {
+        const favsRes = await fetch(`${API_URL}/api/v1/tracks/favorites`, {
           headers: { "Authorization": `Bearer ${token}` },
           signal: AbortSignal.timeout(3000)
         });
@@ -130,7 +129,7 @@ export default function LibraryPage() {
         }
 
         // Fetch history
-        const histRes = await fetch(`http://${host}:8000/api/v1/tracks/history`, {
+        const histRes = await fetch(`${API_URL}/api/v1/tracks/history`, {
           headers: { "Authorization": `Bearer ${token}` },
           signal: AbortSignal.timeout(3000)
         });
@@ -151,7 +150,7 @@ export default function LibraryPage() {
         }
 
         // Fetch playlists
-        const plRes = await fetch(`http://${host}:8000/api/v1/playlists`, {
+        const plRes = await fetch(`${API_URL}/api/v1/playlists`, {
           headers: { "Authorization": `Bearer ${token}` },
           signal: AbortSignal.timeout(3000)
         });
@@ -162,7 +161,7 @@ export default function LibraryPage() {
             const hydratedPlaylists = await Promise.all(
               plData.map(async (pl: any) => {
                 try {
-                  const detailRes = await fetch(`http://${host}:8000/api/v1/playlists/${pl.id}`, {
+                  const detailRes = await fetch(`${API_URL}/api/v1/playlists/${pl.id}`, {
                     headers: { "Authorization": `Bearer ${token}` }
                   });
                   if (detailRes.ok) {
@@ -227,8 +226,7 @@ export default function LibraryPage() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        const res = await fetch(`http://${host}:8000/api/v1/playlists`, {
+        const res = await fetch(`${API_URL}/api/v1/playlists`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${token}`,
@@ -277,8 +275,7 @@ export default function LibraryPage() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token && !id.startsWith("pl_")) {
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        await fetch(`http://${host}:8000/api/v1/playlists/${id}`, {
+        await fetch(`${API_URL}/api/v1/playlists/${id}`, {
           method: "DELETE",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -301,8 +298,7 @@ export default function LibraryPage() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token && !playlistId.startsWith("pl_")) {
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        await fetch(`http://${host}:8000/api/v1/playlists/${playlistId}/tracks/${encodeURIComponent(trackId)}`, {
+        await fetch(`${API_URL}/api/v1/playlists/${playlistId}/tracks/${encodeURIComponent(trackId)}`, {
           method: "DELETE",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -330,8 +326,7 @@ export default function LibraryPage() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        await fetch(`http://${host}:8000/api/v1/tracks/favorites/${encodeURIComponent(trackId)}`, {
+        await fetch(`${API_URL}/api/v1/tracks/favorites/${encodeURIComponent(trackId)}`, {
           method: "DELETE",
           headers: { "Authorization": `Bearer ${token}` }
         });

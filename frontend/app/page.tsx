@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Play, Sparkles, Flame, RefreshCw, Plus, Disc, Music, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, Track } from "../store/usePlaybackStore";
+import { API_URL } from "../lib/api";
 
 const getThumbnailUrl = (item: any) => {
   if (!item) return "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300";
@@ -108,8 +109,7 @@ export default function HomePage() {
       ];
 
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        const res = await fetch(`http://${host}:8000/api/v1/tracks/trending`, {
+        const res = await fetch(`${API_URL}/api/v1/tracks/trending`, {
           signal: AbortSignal.timeout(10000) // Timeout after 10 seconds to allow cold-start fetches
         });
         if (res.ok) {
@@ -149,8 +149,7 @@ export default function HomePage() {
 
       setIsLoadingRecommendations(true);
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${seedId}`);
+        const res = await fetch(`${API_URL}/api/v1/tracks/related/${seedId}`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
@@ -242,8 +241,7 @@ export default function HomePage() {
     };
 
     try {
-      const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-      const res = await fetch(`http://${host}:8000/api/v1/tracks/ai/generate?prompt=${encodeURIComponent(prompt)}`, {
+      const res = await fetch(`${API_URL}/api/v1/tracks/ai/generate?prompt=${encodeURIComponent(prompt)}`, {
         method: "POST",
         signal: AbortSignal.timeout(5000) // Timeout after 5s
       });

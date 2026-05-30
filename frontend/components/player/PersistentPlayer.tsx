@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlaybackStore, getAudioSrc } from "../../store/usePlaybackStore";
+import { API_URL } from "../../lib/api";
 import { EqualizerVisualizer } from "./EqualizerVisualizer";
 import { SyncedLyrics } from "../lyrics/SyncedLyrics";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
@@ -133,8 +134,7 @@ export const PersistentPlayer: React.FC = () => {
     // Sync with backend database
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
-      const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-      fetch(`http://${host}:8000/api/v1/tracks/history/${encodeURIComponent(currentTrack.track_id)}`, {
+      fetch(`${API_URL}/api/v1/tracks/history/${encodeURIComponent(currentTrack.track_id)}`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}` }
       }).catch(err => console.error("[Player] Failed to log listening history to backend:", err));
@@ -156,8 +156,7 @@ export const PersistentPlayer: React.FC = () => {
     const fetchRelated = async () => {
       setIsLoadingRelated(true);
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        const res = await fetch(`http://${host}:8000/api/v1/tracks/related/${currentTrack.track_id}`);
+        const res = await fetch(`${API_URL}/api/v1/tracks/related/${currentTrack.track_id}`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data)) {
@@ -288,8 +287,7 @@ export const PersistentPlayer: React.FC = () => {
     // Sync with backend database
     if (token) {
       try {
-        const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        await fetch(`http://${host}:8000/api/v1/tracks/favorites/${encodeURIComponent(currentTrack.track_id)}`, {
+        await fetch(`${API_URL}/api/v1/tracks/favorites/${encodeURIComponent(currentTrack.track_id)}`, {
           method: next ? "POST" : "DELETE",
           headers: { "Authorization": `Bearer ${token}` }
         });

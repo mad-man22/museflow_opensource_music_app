@@ -7,6 +7,7 @@ import {
   Music, FolderPlus, Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { API_URL } from "../../lib/api";
 
 interface Playlist {
   id: string;
@@ -22,14 +23,7 @@ interface AddToPlaylistModalProps {
   trackTitle?: string;
 }
 
-const getApiUrl = () => {
-  if (typeof window !== "undefined") {
-    return `http://${window.location.hostname}:8000`;
-  }
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-};
-
-const API = getApiUrl();
+const API = API_URL;
 
 export const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({
   isOpen, onClose, trackId, trackTitle,

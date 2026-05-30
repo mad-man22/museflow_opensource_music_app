@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { usePlaybackStore } from "../../store/usePlaybackStore";
+import { API_URL } from "../../lib/api";
 
 interface LyricLine {
   time: number; // In seconds
@@ -53,8 +54,6 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ trackId }) => {
   useEffect(() => {
     const fetchLyrics = async () => {
       try {
-        const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-        
         // Helper to safely format artist names as a clean comma-separated string
         const normalizeArtists = (artists: any): string => {
           if (!artists) return "";
@@ -78,7 +77,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({ trackId }) => {
         if (duration) queryParams.append("duration", String(duration));
 
         const queryString = queryParams.toString();
-        const url = `http://${host}:8000/api/v1/tracks/lyrics/${trackId}${queryString ? `?${queryString}` : ""}`;
+        const url = `${API_URL}/api/v1/tracks/lyrics/${trackId}${queryString ? `?${queryString}` : ""}`;
 
         const res = await fetch(url);
         if (!res.ok) throw new Error("Lyrics fetch failed");

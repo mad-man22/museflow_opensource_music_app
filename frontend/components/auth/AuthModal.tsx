@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabaseClient";
+import { API_URL } from "../../lib/api";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -92,8 +93,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   const handleGuestLogin = async () => {
     setErrorText(null); setSuccessText(null); setIsLoading(true);
     try {
-      const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-      const res = await fetch(`http://${host}:8000/api/v1/auth/guest`, {
+      const res = await fetch(`${API_URL}/api/v1/auth/guest`, {
         method: "POST"
       });
       if (!res.ok) throw new Error("Could not connect to the local guest service.");
