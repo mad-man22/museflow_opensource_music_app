@@ -43,7 +43,13 @@ export class StreamExtractor {
         };
       }
 
-      instance = await Innertube.create(config);
+      // Wrap Innertube client creation in a strict 6-second timeout to prevent hanging on datacenter blocks
+      const createPromise = Innertube.create(config);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Innertube client creation timed out after 6 seconds`)), 6000)
+      );
+
+      instance = await Promise.race([createPromise, timeoutPromise]);
       this.instances.set(clientType, instance);
       console.log(`[Extractor] Innertube client for ${clientType} successfully initialized.`);
     }
@@ -68,7 +74,14 @@ export class StreamExtractor {
       try {
         const yt = await this.getInnertube(clientType);
         console.log(`[Extractor] Fetching basic info for video: ${videoId} using client ${clientType}`);
-        const info = await yt.getBasicInfo(videoId);
+        
+        // Wrap getBasicInfo in a strict 6-second timeout as well
+        const fetchPromise = yt.getBasicInfo(videoId);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`getBasicInfo request timed out after 6 seconds`)), 6000)
+        );
+
+        const info = await Promise.race([fetchPromise, timeoutPromise]);
 
         if (!info.streaming_data) {
           console.warn(`[Extractor] Streaming data not found for ${videoId} using client ${clientType}. Playability status: ${JSON.stringify(info.playability_status || {})}`);
