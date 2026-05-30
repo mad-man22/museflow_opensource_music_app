@@ -156,4 +156,79 @@ export class StreamExtractor {
 
     throw new Error(`All stream extraction clients failed to resolve streaming data. Last error: ${lastError?.message || 'Unknown error'}`);
   }
+
+  /**
+   * Directly downloads and returns a native Web ReadableStream of audio bytes for a YouTube video using a robust fallback chain.
+   * @param videoId The YouTube video or track ID.
+   */
+  public static async getAudioStreamDownload(videoId: string): Promise<{
+    stream: ReadableStream<Uint8Array>;
+    mimeType: string;
+    duration: number;
+  }> {
+    let lastError: any = null;
+
+    for (const clientType of this.CLIENT_TYPES) {
+      try {
+        const yt = await this.getInnertube(clientType);
+        console.log(`[Extractor] Fetching basic info for video: ${videoId} using client ${clientType}`);
+        
+        // Wrap getBasicInfo in a strict 6-second timeout
+        const fetchPromise = yt.getBasicInfo(videoId);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`getBasicInfo request timed out after 6 seconds`)), 6000)
+        );
+
+        const info = await Promise.race([fetchPromise, timeoutPromise]);
+
+        if (!info.streaming_data) {
+          console.warn(`[Extractor] Streaming data not found for ${videoId} using client ${clientType}. Playability status: ${JSON.stringify(info.playability_status || {})}`);
+          continue;
+        }
+
+        // Use the native download method
+        console.log(`[Extractor] Initiating native download() stream for ${videoId} using client ${clientType}`);
+        const stream = await info.download({
+          type: 'audio',
+          quality: 'best'
+        });
+
+        // Resolve format metadata for headers
+        let format: any | undefined;
+        try {
+          format = info.chooseFormat({
+            type: 'audio',
+            quality: 'best'
+          });
+        } catch (err) {
+          // ignore
+        }
+
+        if (!format && info.streaming_data.adaptive_formats) {
+          const audioFormats = info.streaming_data.adaptive_formats.filter(f => 
+            f.mime_type.startsWith('audio/')
+          );
+          if (audioFormats.length > 0) {
+            audioFormats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+            format = audioFormats[0];
+          }
+        }
+
+        const mimeType = format?.mime_type || 'audio/webm; codecs="opus"';
+        const duration = info.basic_info.duration || 0;
+
+        console.log(`[Extractor] Successfully resolved native download stream for ${videoId} using client ${clientType}`);
+        return {
+          stream,
+          mimeType,
+          duration
+        };
+      } catch (error: any) {
+        console.error(`[Extractor] Failed to extract native stream for ${videoId} using client ${clientType}:`, error.message || error);
+        lastError = error;
+      }
+    }
+
+    throw new Error(`All stream extraction clients failed to resolve native streaming data. Last error: ${lastError?.message || 'Unknown error'}`);
+  }
 }

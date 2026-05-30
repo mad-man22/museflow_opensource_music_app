@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import https from 'https';
+import { Readable } from 'stream';
 import { StreamExtractor } from './extractor.js';
 
 dotenv.config();
@@ -51,34 +51,20 @@ app.get('/play', async (req: Request, res: Response) => {
   }
 
   try {
-    const streamDetails = await StreamExtractor.getAudioStream(videoId);
+    const streamDetails = await StreamExtractor.getAudioStreamDownload(videoId);
     
     // Set caching headers so the client/CDN caches for a few hours
     res.setHeader('Cache-Control', 'public, max-age=14400'); // 4 hours
     res.setHeader('Content-Type', streamDetails.mimeType || 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'none'); // Native stream download pipelines as a continuous stream
     
-    const headers: Record<string, string> = {
-      'User-Agent': streamDetails.userAgent || 'Mozilla/5.0 (Android 10; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0'
-    };
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range as string;
-    }
-
-    https.get(streamDetails.url, { headers }, (streamRes) => {
-      if (streamRes.headers['content-length']) {
-        res.setHeader('Content-Length', streamRes.headers['content-length']);
-      }
-      if (streamRes.headers['content-range']) {
-        res.setHeader('Content-Range', streamRes.headers['content-range']);
-      }
-      if (streamRes.headers['accept-ranges']) {
-        res.setHeader('Accept-Ranges', streamRes.headers['accept-ranges']);
-      }
-      
-      res.status(streamRes.statusCode || 200);
-      streamRes.pipe(res);
-    }).on('error', (err) => {
-      console.error('[Proxy Error]:', err);
+    // Convert Web ReadableStream to Node Readable and pipe to Express response
+    const nodeStream = Readable.fromWeb(streamDetails.stream as any);
+    
+    nodeStream.pipe(res);
+    
+    nodeStream.on('error', (err) => {
+      console.error('[Proxy Stream Error]:', err);
       if (!res.headersSent) {
         res.status(500).send('Streaming error');
       }
