@@ -1,4 +1,5 @@
 import { Innertube, Platform } from 'youtubei.js';
+import { ProxyAgent } from 'undici';
 
 // Provide standard JavaScript interpreter for deciphering signatures if needed
 Platform.shim.eval = async (data: any) => {
@@ -15,9 +16,34 @@ export class StreamExtractor {
     let instance = this.instances.get(clientType);
     if (!instance) {
       console.log(`[Extractor] Initializing youtubei.js Innertube client with ${clientType} client_type...`);
-      instance = await Innertube.create({
+      
+      const config: any = {
         client_type: clientType as any
-      });
+      };
+
+      // Support PO Token and Visitor Data from environment variables to bypass bot blocks
+      const poToken = process.env.PO_TOKEN;
+      const visitorData = process.env.VISITOR_DATA;
+      if (poToken) {
+        console.log(`[Extractor] Applying PO_TOKEN configuration for ${clientType}...`);
+        config.po_token = poToken;
+      }
+      if (visitorData) {
+        console.log(`[Extractor] Applying VISITOR_DATA configuration for ${clientType}...`);
+        config.visitor_data = visitorData;
+      }
+
+      // Support Proxy from environment variables for VPS/datacenter IP bypass
+      const proxyUrl = process.env.PROXY_URL || process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+      if (proxyUrl) {
+        console.log(`[Extractor] Configuring undici ProxyAgent for ${clientType}: ${proxyUrl}`);
+        const proxyAgent = new ProxyAgent(proxyUrl);
+        config.fetch = (input: any, init: any) => {
+          return Platform.shim.fetch(input, { ...init, dispatcher: proxyAgent });
+        };
+      }
+
+      instance = await Innertube.create(config);
       this.instances.set(clientType, instance);
       console.log(`[Extractor] Innertube client for ${clientType} successfully initialized.`);
     }
